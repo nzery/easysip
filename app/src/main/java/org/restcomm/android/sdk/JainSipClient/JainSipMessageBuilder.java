@@ -81,7 +81,7 @@ class JainSipMessageBuilder {
 
    private static final String TAG = "JainSipMessageBuilder";
    private static final int MAX_FORWARDS = 70;
-   private static final String USERAGENT_STRING = "TelScale Restcomm Android Client ";//"TelScale Restcomm Android Client 1.0.0-BETA4#20";
+   private static final String USERAGENT_STRING = "easysip";
 
    void initialize(SipFactory sipFactory, SipProvider provider) throws PeerUnavailableException
    {
