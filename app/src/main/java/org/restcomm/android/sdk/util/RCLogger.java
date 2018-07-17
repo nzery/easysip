@@ -26,7 +26,7 @@ import android.util.Log;
 
 public class RCLogger {
     private static int ALL = 8;
-    private static int globalLevel = Log.ERROR;
+    private static int globalLevel = Log.VERBOSE;
 
     public static void setLogLevel(int level)
     {
