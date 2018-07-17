@@ -6,11 +6,12 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
-    <TextureView
+    <TextView
         android:id="@+id/myTextureView"
         android:layout_width="match_parent"
         android:layout_height="720px"
         android:layout_marginTop="40px"
+        android:text="test"
         app:layout_constraintTop_toTopOf="parent" />
 
 </android.support.constraint.ConstraintLayout>
