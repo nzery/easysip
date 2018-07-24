@@ -319,7 +319,7 @@ public class JainSipCall {
             RCLogger.i(TAG, "Sending SIP response: \n" + response.toString());
             serverTransaction.sendResponse(response);
 
-            if (jainSipJob.transaction != null) {
+            if (jainSipJob.transaction != null && jainSipJob.transaction instanceof ServerTransaction) {
                // also send a 487 Request Terminated response to the original INVITE request
                Request originalInviteRequest = jainSipJob.transaction.getRequest();
                Response originalInviteResponse = jainSipClient.jainSipMessageBuilder.buildResponse(Response.REQUEST_TERMINATED, originalInviteRequest);
