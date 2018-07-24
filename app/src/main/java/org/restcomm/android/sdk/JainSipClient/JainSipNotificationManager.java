@@ -156,7 +156,8 @@ class JainSipNotificationManager extends BroadcastReceiver {
 
    static public NetworkStatus checkConnectivity(Context context)
    {
-      NetworkStatus networkStatus = NetworkStatus.NetworkStatusNone;
+      NetworkStatus networkStatus = NetworkStatus.NetworkStatusEthernet;
+      /*NetworkStatus networkStatus = NetworkStatus.NetworkStatusNone;
       RCLogger.d(TAG, "checkConnectivity()");
       ConnectivityManager connectivityManager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
 
@@ -219,7 +220,7 @@ class JainSipNotificationManager extends BroadcastReceiver {
 
       if (networkStatus == NetworkStatus.NetworkStatusNone) {
          RCLogger.w(TAG, "Connectivity status: NONE");
-      }
+      }*/
 
       return networkStatus;
    }
