@@ -157,292 +157,268 @@ public class JainSipClient implements SipListener, JainSipNotificationManager.No
 
    // -- Published API
    public void open(final String jobId, final Context androidContext, final HashMap<String, Object> configuration, final JainSipClientListener listener) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "open(): " + configuration.toString());
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "open(): " + configuration.toString());
 
-            if (JainSipClient.clientOpened) {
-               listener.onClientOpenedReply(jobId, RCDeviceListener.RCConnectivityStatus.RCConnectivityStatusNone,
-                       RCClient.ErrorCodes.ERROR_DEVICE_ALREADY_OPEN,
-                       RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_ALREADY_OPEN));
-               return;
+         if (JainSipClient.clientOpened) {
+            listener.onClientOpenedReply(jobId, RCDeviceListener.RCConnectivityStatus.RCConnectivityStatusNone,
+                    RCClient.ErrorCodes.ERROR_DEVICE_ALREADY_OPEN,
+                    RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_ALREADY_OPEN));
+            return;
+         }
+
+         JainSipClient.this.listener = listener;
+         JainSipClient.this.androidContext = androidContext;
+         JainSipClient.this.configuration = configuration;
+         jainSipMessageBuilder = new JainSipMessageBuilder();
+         jainSipJobManager = new JainSipJobManager(JainSipClient.this);
+         jainSipNotificationManager = new JainSipNotificationManager(androidContext, signalingHandler, JainSipClient.this);
+         jainSipClientContext = new HashMap<>();
+
+         jainSipFactory = SipFactory.getInstance();
+         jainSipFactory.resetFactory();
+         jainSipFactory.setPathName("android.gov.nist");
+
+         Properties properties = new Properties();
+         properties.setProperty("android.javax.sip.STACK_NAME", "androidSip");
+
+         //we have issue with the signaling on Oreo device
+         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            properties.setProperty("android.gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", "android.gov.nist.javax.sip.stack.NioMessageProcessorFactory");
+         }
+
+         // DNS SRV
+         // Important: for jain-sip.ext especially, we need to drop the 'android' part
+         properties.setProperty("javax.sip.ROUTER_PATH", DNSAwareRouter.class.getCanonicalName());
+
+         // Setup TLS even if currently we aren't using it, so that if user changes the setting later
+         // the SIP stack is ready to support it
+         //todo 这里需要占用4秒，而且内存占用过高，先取消
+   /*String keystoreFilename = "restcomm-android.keystore";
+   HashMap<String, String> securityParameters = JainSipSecurityHelper.generateKeystore(androidContext, keystoreFilename);
+   JainSipSecurityHelper.setProperties(properties, securityParameters.get("keystore-path"), securityParameters.get("keystore-password"),
+         (Boolean)configuration.get(RCDevice.ParameterKeys.DEBUG_DISABLE_CERTIFICATE_VERIFICATION));*/
+
+         if (configuration.containsKey(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED) &&
+                 (Boolean) configuration.get(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED)) {
+            // You need 16 for logging traces. 32 for debug + traces.
+            // Your code will limp at 32 but it is best for debugging.
+            properties.setProperty("android.gov.nist.javax.sip.TRACE_LEVEL", "32");
+            File downloadPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            properties.setProperty("android.gov.nist.javax.sip.DEBUG_LOG", downloadPath.getAbsolutePath() + "/debug-jain.log");
+            properties.setProperty("android.gov.nist.javax.sip.SERVER_LOG", downloadPath.getAbsolutePath() + "/server-jain.log");
+
+            properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
+            properties.setProperty("gov.nist.javax.sip.DEBUG_LOG", downloadPath.getAbsolutePath() + "/debug-jain-ext.log");
+            properties.setProperty("gov.nist.javax.sip.SERVER_LOG", downloadPath.getAbsolutePath() + "/server-jain-ext.log");
+
+            if (androidContext.checkCallingOrSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+               RCLogger.e(TAG, "JAIN SIP logging is enabled but permission " + Manifest.permission.WRITE_EXTERNAL_STORAGE + " is not granted");
             }
+         }
 
-            JainSipClient.this.listener = listener;
-            JainSipClient.this.androidContext = androidContext;
-            JainSipClient.this.configuration = configuration;
-            jainSipMessageBuilder = new JainSipMessageBuilder();
-            jainSipJobManager = new JainSipJobManager(JainSipClient.this);
-            jainSipNotificationManager = new JainSipNotificationManager(androidContext, signalingHandler, JainSipClient.this);
-            jainSipClientContext = new HashMap<>();
+         try {
+            JainSipConfiguration.normalizeParameters(configuration);
+            jainSipStack = jainSipFactory.createSipStack(properties);
+            JainSipMessageBuilder.normalizeDomain(configuration, configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED) &&
+                    (boolean) configuration.get(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED));
 
-            jainSipFactory = SipFactory.getInstance();
-            jainSipFactory.resetFactory();
-            jainSipFactory.setPathName("android.gov.nist");
-
-            Properties properties = new Properties();
-            properties.setProperty("android.javax.sip.STACK_NAME", "androidSip");
-
-            //we have issue with the signaling on Oreo device
-            if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.O) {
-               properties.setProperty("android.gov.nist.javax.sip.MESSAGE_PROCESSOR_FACTORY", "android.gov.nist.javax.sip.stack.NioMessageProcessorFactory");
-            }
-
-            // DNS SRV
-            // Important: for jain-sip.ext especially, we need to drop the 'android' part
-            properties.setProperty("javax.sip.ROUTER_PATH", DNSAwareRouter.class.getCanonicalName());
-
-            // Setup TLS even if currently we aren't using it, so that if user changes the setting later
-            // the SIP stack is ready to support it
-            //todo 这里需要占用4秒，而且内存占用过高，先取消
-      /*String keystoreFilename = "restcomm-android.keystore";
-      HashMap<String, String> securityParameters = JainSipSecurityHelper.generateKeystore(androidContext, keystoreFilename);
-      JainSipSecurityHelper.setProperties(properties, securityParameters.get("keystore-path"), securityParameters.get("keystore-password"),
-            (Boolean)configuration.get(RCDevice.ParameterKeys.DEBUG_DISABLE_CERTIFICATE_VERIFICATION));*/
-
-            if (configuration.containsKey(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED) &&
-                    (Boolean) configuration.get(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED)) {
-               // You need 16 for logging traces. 32 for debug + traces.
-               // Your code will limp at 32 but it is best for debugging.
-               properties.setProperty("android.gov.nist.javax.sip.TRACE_LEVEL", "32");
-               File downloadPath = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-               properties.setProperty("android.gov.nist.javax.sip.DEBUG_LOG", downloadPath.getAbsolutePath() + "/debug-jain.log");
-               properties.setProperty("android.gov.nist.javax.sip.SERVER_LOG", downloadPath.getAbsolutePath() + "/server-jain.log");
-
-               properties.setProperty("gov.nist.javax.sip.TRACE_LEVEL", "32");
-               properties.setProperty("gov.nist.javax.sip.DEBUG_LOG", downloadPath.getAbsolutePath() + "/debug-jain-ext.log");
-               properties.setProperty("gov.nist.javax.sip.SERVER_LOG", downloadPath.getAbsolutePath() + "/server-jain-ext.log");
-
-               if (androidContext.checkCallingOrSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                  RCLogger.e(TAG, "JAIN SIP logging is enabled but permission " + Manifest.permission.WRITE_EXTERNAL_STORAGE + " is not granted");
-               }
-            }
-
-            try {
-               JainSipConfiguration.normalizeParameters(configuration);
-               jainSipStack = jainSipFactory.createSipStack(properties);
-               JainSipMessageBuilder.normalizeDomain(configuration, configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED) &&
-                       (boolean) configuration.get(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED));
-
-               jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_OPEN, configuration);
-            } catch (SipException e) {
-               throw new RuntimeException("Failed to bootstrap the signaling stack", e);
-         /*
-         listener.onClientOpenedReply(jobId, jainSipNotificationManager.getConnectivityStatus(), RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP,
-               RCClient.errorText(RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP));
-         */
-            }
+            jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_OPEN, configuration);
+         } catch (SipException e) {
+            throw new RuntimeException("Failed to bootstrap the signaling stack", e);
+      /*
+      listener.onClientOpenedReply(jobId, jainSipNotificationManager.getConnectivityStatus(), RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP,
+            RCClient.errorText(RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP));
+      */
          }
       });
    }
 
    public void close(final String jobId) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "close(): " + jobId);
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "close(): " + jobId);
 
-            if (JainSipClient.clientOpened) {
-               // cancel any pending scheduled registrations
-               //signalingHandler.removeCallbacksAndMessages(REGISTER_REFRESH_HANDLER_TOKEN);
+         if (JainSipClient.clientOpened) {
+            // cancel any pending scheduled registrations
+            //signalingHandler.removeCallbacksAndMessages(REGISTER_REFRESH_HANDLER_TOKEN);
 
-               // TODO: close any active calls
-               //
+            // TODO: close any active calls
+            //
 
-               jainSipNotificationManager.close();
-               jainSipJobManager.removeAll();
+            jainSipNotificationManager.close();
+            jainSipJobManager.removeAll();
 
-               if (configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_DOMAIN) && !configuration.get(RCDevice.ParameterKeys.SIGNALING_DOMAIN).equals("")) {
-                  // non registrar-less, we need to unregister and when done shutdown
-                  jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_CLOSE, JainSipClient.this.configuration);
-               } else {
-                  // registrar-less, just shutdown and notify UI thread
-                  try {
-                     jainSipClientUnbind();
-                     jainSipClientStopStack();
-
-                     listener.onClientClosedEvent(jobId, RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
-                  } catch (JainSipException e) {
-                     e.printStackTrace();
-                     listener.onClientClosedEvent(jobId, e.errorCode, e.errorText);
-                  }
-               }
+            if (configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_DOMAIN) && !configuration.get(RCDevice.ParameterKeys.SIGNALING_DOMAIN).equals("")) {
+               // non registrar-less, we need to unregister and when done shutdown
+               jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_CLOSE, JainSipClient.this.configuration);
             } else {
-               throw new RuntimeException("JainSipClient already closed, bailing");
-         /*
-         RCLogger.w(TAG, "close(): JAIN SIP client already closed, bailing");
-         listener.onClientClosedEvent(jobId, RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP,
-               RCClient.errorText(RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP));
-               */
+               // registrar-less, just shutdown and notify UI thread
+               try {
+                  jainSipClientUnbind();
+                  jainSipClientStopStack();
+
+                  listener.onClientClosedEvent(jobId, RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
+               } catch (JainSipException e) {
+                  e.printStackTrace();
+                  listener.onClientClosedEvent(jobId, e.errorCode, e.errorText);
+               }
             }
+         } else {
+            throw new RuntimeException("JainSipClient already closed, bailing");
+      /*
+      RCLogger.w(TAG, "close(): JAIN SIP client already closed, bailing");
+      listener.onClientClosedEvent(jobId, RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP,
+            RCClient.errorText(RCClient.ErrorCodes.ERROR_SIGNALING_SIP_STACK_BOOTSTRAP));
+            */
          }
       });
    }
 
    public void reconfigure(final String jobId, final HashMap<String, Object> parameters, final JainSipClientListener listener) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "reconfigure(): " + parameters.toString());
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "reconfigure(): " + parameters.toString());
 
-            // check which parameters actually changed by comparing this.configuration with parameters
-            HashMap<String, Object> modifiedParameters = JainSipConfiguration.modifiedParameters(JainSipClient.this.configuration, parameters);
+         // check which parameters actually changed by comparing this.configuration with parameters
+         HashMap<String, Object> modifiedParameters = JainSipConfiguration.modifiedParameters(JainSipClient.this.configuration, parameters);
 
-            if (modifiedParameters.size() == 0) {
-               listener.onClientReconfigureReply(jobId, JainSipNotificationManager.networkStatus2ConnectivityStatus(jainSipNotificationManager.getNetworkStatus()),
-                       RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
-               return;
-            }
+         if (modifiedParameters.size() == 0) {
+            listener.onClientReconfigureReply(jobId, JainSipNotificationManager.networkStatus2ConnectivityStatus(jainSipNotificationManager.getNetworkStatus()),
+                    RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
+            return;
+         }
 
-            HashMap<String, Object> oldParameters = new HashMap<String, Object>();
-            oldParameters.putAll(configuration);
+         HashMap<String, Object> oldParameters = new HashMap<String, Object>();
+         oldParameters.putAll(configuration);
 
-            // remember that the new parameters can be just a subset of the currently stored in configuration, so to update the current parameters we need
-            // to merge them with the new (i.e. keep the old and replace any new keys with new values)
-            configuration = JainSipConfiguration.mergeParameters(configuration, parameters);
-            JainSipMessageBuilder.normalizeDomain(configuration, configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED) &&
-                    (boolean) configuration.get(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED));
+         // remember that the new parameters can be just a subset of the currently stored in configuration, so to update the current parameters we need
+         // to merge them with the new (i.e. keep the old and replace any new keys with new values)
+         configuration = JainSipConfiguration.mergeParameters(configuration, parameters);
+         JainSipMessageBuilder.normalizeDomain(configuration, configuration.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED) &&
+                 (boolean) configuration.get(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED));
 
-            // Set the media parameters right away, since they are irrelevant to signaling
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED)) {
-               JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED));
-            }
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_URL)) {
-               JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_URL, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_URL));
-            }
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME)) {
-               JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME));
-            }
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD)) {
-               JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD));
-            }
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN)) {
-               JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN));
-            }
+         // Set the media parameters right away, since they are irrelevant to signaling
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED)) {
+            JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_TURN_ENABLED));
+         }
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_URL)) {
+            JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_URL, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_URL));
+         }
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME)) {
+            JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_USERNAME));
+         }
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD)) {
+            JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_PASSWORD));
+         }
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN)) {
+            JainSipClient.this.configuration.put(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN, modifiedParameters.get(RCDevice.ParameterKeys.MEDIA_ICE_DOMAIN));
+         }
 
-            HashMap<String, Object> multipleParameters = new HashMap<String, Object>();
-            multipleParameters.put("old-parameters", oldParameters);
-            multipleParameters.put("new-parameters", configuration);
-            if (modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED)) {
-               // if signaling secure has changed we need to a. unregister from old using old creds, b. unbind, c. bind, d. register with new using new creds
-               // start FSM and pass it both previous and current parameters
-               jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_RECONFIGURE_RELOAD_NETWORKING, multipleParameters);
-            } else if (modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_USERNAME) ||
-                    modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_PASSWORD) ||
-                    modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_DOMAIN)) {
-               // if username, password or domain has changed we need to a. unregister from old using old creds and b. register with new using new creds
-               // start FSM and pass it both previous and current parameters
-               jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_RECONFIGURE, multipleParameters);
-            } else {
-               listener.onClientReconfigureReply(jobId, JainSipNotificationManager.networkStatus2ConnectivityStatus(jainSipNotificationManager.getNetworkStatus()),
-                       RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
-            }
+         HashMap<String, Object> multipleParameters = new HashMap<String, Object>();
+         multipleParameters.put("old-parameters", oldParameters);
+         multipleParameters.put("new-parameters", configuration);
+         if (modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_SECURE_ENABLED)) {
+            // if signaling secure has changed we need to a. unregister from old using old creds, b. unbind, c. bind, d. register with new using new creds
+            // start FSM and pass it both previous and current parameters
+            jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_RECONFIGURE_RELOAD_NETWORKING, multipleParameters);
+         } else if (modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_USERNAME) ||
+                 modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_PASSWORD) ||
+                 modifiedParameters.containsKey(RCDevice.ParameterKeys.SIGNALING_DOMAIN)) {
+            // if username, password or domain has changed we need to a. unregister from old using old creds and b. register with new using new creds
+            // start FSM and pass it both previous and current parameters
+            jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_RECONFIGURE, multipleParameters);
+         } else {
+            listener.onClientReconfigureReply(jobId, JainSipNotificationManager.networkStatus2ConnectivityStatus(jainSipNotificationManager.getNetworkStatus()),
+                    RCClient.ErrorCodes.SUCCESS, RCClient.errorText(RCClient.ErrorCodes.SUCCESS));
          }
       });
    }
 
    // ------ Call-related methods
    public void call(final String jobId, final HashMap<String, Object> parameters, final JainSipCall.JainSipCallListener listener) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "call(): jobId: " + jobId + ", username: " + parameters.toString());
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "call(): jobId: " + jobId + ", username: " + parameters.toString());
 
-            if (!jainSipNotificationManager.haveConnectivity()) {
-               listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
-               return;
-            }
+         if (!jainSipNotificationManager.haveConnectivity()) {
+            listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
+            return;
+         }
 
-            try {
-               jainSipMessageBuilder.normalizePeer(parameters, configuration, jainSipListeningPoint);
+         try {
+            jainSipMessageBuilder.normalizePeer(parameters, configuration, jainSipListeningPoint);
 
-               JainSipCall jainSipCall = new JainSipCall(JainSipClient.this, listener);
-               jainSipCall.open(jobId, parameters);
-            } catch (JainSipException e) {
-               listener.onCallErrorEvent(jobId, e.errorCode, e.errorText);
-            }
+            JainSipCall jainSipCall = new JainSipCall(JainSipClient.this, listener);
+            jainSipCall.open(jobId, parameters);
+         } catch (JainSipException e) {
+            listener.onCallErrorEvent(jobId, e.errorCode, e.errorText);
          }
       });
    }
 
    public void accept(final String jobId, final HashMap<String, Object> parameters, final JainSipCall.JainSipCallListener listener) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "accept(): jobId: " + jobId + ", parameters: " + parameters.toString());
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "accept(): jobId: " + jobId + ", parameters: " + parameters.toString());
 
-            if (!jainSipNotificationManager.haveConnectivity()) {
-               listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
-               return;
-            }
-
-            JainSipJob jainSipJob = jainSipJobManager.get(jobId);
-            if (jainSipJob == null) {
-               throw new RuntimeException("Error accepting a call that doesn't exist in job manager, jobId: " + jobId);
-            }
-            jainSipJob.jainSipCall.accept(jainSipJob, parameters);
+         if (!jainSipNotificationManager.haveConnectivity()) {
+            listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
+            return;
          }
+
+         JainSipJob jainSipJob = jainSipJobManager.get(jobId);
+         if (jainSipJob == null) {
+            throw new RuntimeException("Error accepting a call that doesn't exist in job manager, jobId: " + jobId);
+         }
+         jainSipJob.jainSipCall.accept(jainSipJob, parameters);
       });
    }
 
    public void disconnect(final String jobId, final String reason, final JainSipCall.JainSipCallListener listener) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "disconnect(): jobId: " + jobId + ", reason: " + reason);
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "disconnect(): jobId: " + jobId + ", reason: " + reason);
 
-            if (!jainSipNotificationManager.haveConnectivity()) {
-               listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
-               return;
-            }
+         if (!jainSipNotificationManager.haveConnectivity()) {
+            listener.onCallErrorEvent(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
+            return;
+         }
 
-            JainSipJob jainSipJob = jainSipJobManager.get(jobId);
-            // There are cases where a call legitimately fails before a job is created (an example is when invalid SIP URI is used, where RCConnection will return error
-            // to the User but the user still needs to disconnect() manually), hence this will return null and
-            // in those cases we don't need to do anything
-            if (jainSipJob != null) {
-               jainSipJob.jainSipCall.disconnect(jainSipJob, reason);
-            } else {
-               // let's emit a warning just in case we hit an actual error case with this
-               RCLogger.w(TAG, "disconnect(): job doesn't exist for the call; this can be a valid scenario");
-            }
+         JainSipJob jainSipJob = jainSipJobManager.get(jobId);
+         // There are cases where a call legitimately fails before a job is created (an example is when invalid SIP URI is used, where RCConnection will return error
+         // to the User but the user still needs to disconnect() manually), hence this will return null and
+         // in those cases we don't need to do anything
+         if (jainSipJob != null) {
+            jainSipJob.jainSipCall.disconnect(jainSipJob, reason);
+         } else {
+            // let's emit a warning just in case we hit an actual error case with this
+            RCLogger.w(TAG, "disconnect(): job doesn't exist for the call; this can be a valid scenario");
          }
       });
    }
 
    public void sendDigits(final String jobId, final String digits) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "sendDigits(): jobId: " + jobId + ", digits: " + digits);
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "sendDigits(): jobId: " + jobId + ", digits: " + digits);
 
-            JainSipJob jainSipJob = jainSipJobManager.get(jobId);
-            jainSipJob.jainSipCall.sendDigits(jainSipJob, digits);
-         }
+         JainSipJob jainSipJob = jainSipJobManager.get(jobId);
+         jainSipJob.jainSipCall.sendDigits(jainSipJob, digits);
       });
    }
 
    // ------ Message-related methods
    public void sendMessage(final String jobId, final HashMap<String, Object> parameters) {
-      signalingHandler.post(new Runnable() {
-         @Override
-         public void run() {
-            RCLogger.i(TAG, "sendMessage(): jobId: " + jobId + ", parameters: " + parameters.toString());
+      signalingHandler.post(() -> {
+         RCLogger.i(TAG, "sendMessage(): jobId: " + jobId + ", parameters: " + parameters.toString());
 
-            if (!jainSipNotificationManager.haveConnectivity()) {
-               listener.onClientMessageReply(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
-               return;
-            }
+         if (!jainSipNotificationManager.haveConnectivity()) {
+            listener.onClientMessageReply(jobId, RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY, RCClient.errorText(RCClient.ErrorCodes.ERROR_DEVICE_NO_CONNECTIVITY));
+            return;
+         }
 
-            try {
-               jainSipMessageBuilder.normalizePeer(parameters, configuration, jainSipListeningPoint);
+         try {
+            jainSipMessageBuilder.normalizePeer(parameters, configuration, jainSipListeningPoint);
 
-               Transaction transaction = jainSipClientSendMessage(parameters);
-               jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_MESSAGE, transaction, parameters, null);
-            } catch (JainSipException e) {
-               listener.onClientMessageReply(jobId, e.errorCode, e.errorText);
-            }
+            Transaction transaction = jainSipClientSendMessage(parameters);
+            jainSipJobManager.add(jobId, JainSipJob.Type.TYPE_MESSAGE, transaction, parameters, null);
+         } catch (JainSipException e) {
+            listener.onClientMessageReply(jobId, e.errorCode, e.errorText);
          }
       });
    }
