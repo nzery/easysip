@@ -520,7 +520,7 @@ public class SIPServerTransactionImpl extends SIPTransactionImpl implements SIPS
                         host = via.getHost();
                     }
                 }
-                logger.logDebug("debug host:"+host+" port:"+port+" transport:"+transport);
+
                 Hop hop = sipStack.addressResolver.resolveAddress(new HopImpl(host, port,
                         transport));
 
