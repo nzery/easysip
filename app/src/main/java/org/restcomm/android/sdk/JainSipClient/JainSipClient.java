@@ -25,6 +25,7 @@ package org.restcomm.android.sdk.JainSipClient;
 import android.Manifest;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.gov.nist.javax.sip.ListeningPointImpl;
 import android.gov.nist.javax.sip.ResponseEventExt;
 import android.gov.nist.javax.sip.SipStackExt;
 import android.gov.nist.javax.sip.clientauthutils.AuthenticationHelper;
@@ -32,7 +33,6 @@ import android.gov.nist.javax.sip.message.SIPMessage;
 import android.javax.sip.ClientTransaction;
 import android.javax.sip.DialogTerminatedEvent;
 import android.javax.sip.IOExceptionEvent;
-import android.javax.sip.ListeningPoint;
 import android.javax.sip.ObjectInUseException;
 import android.javax.sip.RequestEvent;
 import android.javax.sip.ResponseEvent;
@@ -66,6 +66,7 @@ import org.restcomm.android.sdk.util.RCClient;
 import org.restcomm.android.sdk.util.RCLogger;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
@@ -137,6 +138,7 @@ public class JainSipClient implements SipListener, JainSipNotificationManager.No
    // Register expiry in seconds
    private final int DEFAULT_REGISTER_EXPIRY_PERIOD = 3600;
    private final int DEFAULT_LOCAL_SIP_PORT = 5090;
+   private final int HEARTBEAT_INTERVAL = 30000;//心跳间隔
    // the registration refresh needs to happen sooner than expiry to make sure that the client has a registration at all times. Let's
    // set it to EXPIRY - 50 seconds. TODO: in the future we could randomize this so that for example it is between half the expiry
    // and full expiry (in this example, a random between [30, 60] seconds) to avoid having all android clients refreshing all at
@@ -148,7 +150,7 @@ public class JainSipClient implements SipListener, JainSipNotificationManager.No
    // JAIN SIP entities
    private SipFactory jainSipFactory;
    private SipStack jainSipStack;
-   ListeningPoint jainSipListeningPoint;
+   ListeningPointImpl jainSipListeningPoint;
    SipProvider jainSipProvider;
 
    public JainSipClient(Handler signalingHandler) {
@@ -446,7 +448,8 @@ public class JainSipClient implements SipListener, JainSipNotificationManager.No
          }
 
          try {
-            jainSipListeningPoint = jainSipStack.createListeningPoint(getIPAddress(true), port, transport);
+            jainSipListeningPoint = (ListeningPointImpl) jainSipStack.createListeningPoint(getIPAddress(true), port, transport);
+            signalingHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL);
             jainSipProvider = jainSipStack.createSipProvider(jainSipListeningPoint);
             jainSipProvider.addSipListener(this);
             jainSipMessageBuilder.initialize(jainSipFactory, jainSipProvider);
@@ -465,6 +468,18 @@ public class JainSipClient implements SipListener, JainSipNotificationManager.No
          throw new RuntimeException("Error: listening point already created");
       }
    }
+
+   private Runnable heartbeatRunnable = new Runnable() {
+      @Override
+      public void run() {
+         try {
+            jainSipListeningPoint.sendHeartbeat("192.168.11.100",5060);
+         } catch (IOException e) {
+            e.printStackTrace();
+         }
+         signalingHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL);
+      }
+   };
 
    // Release JAIN networking facilities
    public void jainSipClientUnbind() throws JainSipException {
