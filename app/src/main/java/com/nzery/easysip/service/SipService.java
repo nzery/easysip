@@ -128,7 +128,7 @@ public class SipService extends Service implements JainSipClient.JainSipClientLi
         mClient = new JainSipClient(mHandler);
         mJobId = Long.toString(System.currentTimeMillis());
         HashMap<String, Object> configuration = new HashMap<>();
-        //configuration.put(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED, true);
+        configuration.put(RCDevice.ParameterKeys.DEBUG_JAIN_SIP_LOGGING_ENABLED, true);
 
         configuration.put(RCDevice.ParameterKeys.SIGNALING_DOMAIN, mConfig.getString(RCDevice.ParameterKeys.SIGNALING_DOMAIN, "192.168.11.100"));
         configuration.put(RCDevice.ParameterKeys.SIGNALING_USERNAME, mConfig.getString(RCDevice.ParameterKeys.SIGNALING_USERNAME, "102"));
